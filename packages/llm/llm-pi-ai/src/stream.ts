@@ -46,6 +46,9 @@ function classifyPiAiError(message: string): string {
   if (/\b400\b|invalid.?request/i.test(message)) return 'INVALID_REQUEST'
   if (/\b5\d\d\b/.test(message)) return 'SERVER'
   if (/\btime(?:d)?\s*out\b|timeout/i.test(message)) return 'TIMEOUT'
+  // 0.84 reports a caller abort as an in-stream error event ("Request was
+  // aborted") rather than stopReason aborted; keep the harness abort kind.
+  if (/\baborted\b/i.test(message)) return 'ABORTED'
   // A stream truncated before the provider's terminal event: each pi-ai provider
   // throws its own wording when the wire closes mid-response without a terminal
   // event (`… stream ended before message_stop`, `… before a terminal response
@@ -104,13 +107,30 @@ export function mapStopReason(message: AssistantMessage, contextWindow?: number)
       return { kind: 'stop' }
     case 'length': return { kind: 'max-tokens' }
     case 'toolUse': return { kind: 'tool-calls' }
+    case 'deferred':
+      // 0.84 added deferred as a successful terminal reason (background /
+      // deferred-tool handle). This adapter cannot poll DeferredHandle, so the
+      // streamed content is treated as a completed turn.
+      return { kind: 'stop' }
+    case 'pending':
+      return {
+        kind: 'error',
+        failure: {
+          message: message.errorMessage ?? `model "${message.model}" returned a non-terminal pending stop`,
+          code: 'PI_AI_ERROR',
+        },
+      }
     case 'aborted': return {
       kind: 'aborted',
       failure: { message: message.errorMessage ?? 'pi-ai stream aborted', code: 'ABORTED' },
     }
     case 'error': {
       const text = message.errorMessage ?? 'pi-ai stream error'
-      return { kind: 'error', failure: { message: text, code: classifyPiAiError(text) } }
+      const code = classifyPiAiError(text)
+      if (code === 'ABORTED') {
+        return { kind: 'aborted', failure: { message: text, code: 'ABORTED' } }
+      }
+      return { kind: 'error', failure: { message: text, code } }
     }
   }
 }

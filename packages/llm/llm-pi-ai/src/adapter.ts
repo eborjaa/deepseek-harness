@@ -61,6 +61,15 @@ import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
 import { toStreamChunks } from './stream.ts'
 
+/** Failure payload when the caller abort signal wins over an in-stream pi-ai error. */
+function callerAbortFailure(signal: AbortSignal): { message: string; code: 'ABORTED' } {
+  const reason = signal.reason
+  const message = reason instanceof Error ? reason.message
+    : typeof reason === 'string' && reason.length > 0 ? reason
+      : 'pi-ai request aborted by caller'
+  return { message, code: 'ABORTED' }
+}
+
 /** One resolution's frozen view: the profiles and the collection built from them. */
 interface PiAiSnapshot {
   /** The resolved profiles this collection was built from, used as its identity. */
@@ -385,7 +394,19 @@ export class PiAiAdapter extends LlmAdapter {
             exhausted = true
             return
           }
-          yield result.value
+          const chunk = result.value
+          // 0.84 reports a pre-aborted signal as an in-stream error whose
+          // message is the abort reason (e.g. "already stopped"), so the
+          // caller abort has to win here rather than in the throw path below.
+          if (
+            chunk.type === 'finish'
+            && options.signal?.aborted
+            && chunk.reason.kind !== 'aborted'
+          ) {
+            yield { ...chunk, reason: { kind: 'aborted', failure: callerAbortFailure(options.signal) } }
+          } else {
+            yield chunk
+          }
         }
       } finally {
         if (!exhausted) {

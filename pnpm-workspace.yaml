@@ -57,6 +57,8 @@ allowBuilds:
 minimumReleaseAgeExclude:
   # Fresh pi-ai releases carry the model catalog updates that are the whole
   # point of bumping it; waiting out the release age would defeat that.
+  - '@earendil-works/pi-ai'
+  - '@earendil-works/pi-telemetry'
   - '@earendil-works/pi-ai@0.82.1'
   - node-addon-native-custom-loader@0.1.4
   - node-addon-require-builtin-darwin-arm64@0.1.4
@@ -67,6 +69,8 @@ minimumReleaseAgeExclude:
   - node-addon-require-builtin-win32-ia32-msvc@0.1.4
   - node-addon-require-builtin-win32-x64-msvc@0.1.4
   - node-addon-require-builtin@0.1.4
+  - '@earendil-works/pi-ai@0.84.3'
+  - '@earendil-works/pi-telemetry@0.84.3'
 
 patchedDependencies:
   node-pty@1.2.0-beta.15: patches/node-pty@1.2.0-beta.15.patch
