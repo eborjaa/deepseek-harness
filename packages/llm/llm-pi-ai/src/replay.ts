@@ -118,7 +118,7 @@ function readReplayState(value: unknown): PiAiReplayState {
   for (const key of ['api', 'provider', 'model'] as const) {
     if (typeof response[key] !== 'string' || response[key].length === 0) return invalidReplay(`${key} must be a non-empty string`)
   }
-  if (!['stop', 'length', 'toolUse', 'error', 'aborted'].includes(String(response['stopReason']))) {
+  if (!['stop', 'length', 'toolUse', 'error', 'aborted', 'deferred', 'pending'].includes(String(response['stopReason']))) {
     return invalidReplay('unknown stopReason')
   }
   if (response['responseModel'] !== undefined && typeof response['responseModel'] !== 'string') return invalidReplay('responseModel must be a string')
