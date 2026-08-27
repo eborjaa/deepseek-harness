@@ -29,6 +29,7 @@ import {
   resolveRouteModels,
   SUPPORTED_THINKING_FORMATS,
   THINKING_LEVELS,
+  THINKING_TOKEN_BUDGET_FIELDS,
 } from './catalog.ts'
 import type {
   PiAiCompatProfile,
@@ -264,6 +265,7 @@ const compatProfile: z<PiAiCompatProfile> = z.object({
   supportsStrictMode: z.boolean(),
   cacheControlFormat: z.union(CACHE_CONTROL_FORMATS),
   supportsLongCacheRetention: z.boolean(),
+  thinkingTokenBudgetField: z.union(THINKING_TOKEN_BUDGET_FIELDS),
   supportsEagerToolInputStreaming: z.boolean(),
   supportsCacheControlOnTools: z.boolean(),
   supportsTemperature: z.boolean(),
