@@ -1,0 +1,14 @@
+.git
+.github
+# Host tsc includes website/**/*.ts (docs.ts). Keep source; drop the VitePress install.
+website/node_modules
+website/.vitepress/dist
+website/.vitepress/cache
+node_modules
+**/node_modules
+**/.DS_Store
+coverage
+.pnpm-store
+*.log
+# Removed packages leave compiled lib/ on the host; tsdown still glob-picks them.
+packages/host/apiproxy
