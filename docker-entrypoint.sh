@@ -106,9 +106,24 @@ process.stderr.write("[dsh] synapse-core did not answer in 60s — starting DSH 
 
 node /usr/local/lib/dsh-loopback-proxy.mjs &
 
-exec node /app/apps/cli/lib/bin.js web \
-  --host 127.0.0.1 \
-  --port "$DSH_PORT" \
-  --no-open \
-  --trusted-host 127.0.0.1:8080 \
-  --trusted-host localhost:8080
+# DSH checks the Host header of every /api request against a trusted list and answers 403 otherwise
+# ("the /api browser-trust fence"). Reaching this container through a proxy on a real domain means
+# requests arrive with that domain in Host, so the domain has to be named here or the UI loads and
+# then fails on `llm/listProviders` with no clue why. The WebSocket at /api/remote.mux fails the
+# same way, because the browser derives it from the page origin.
+#
+# DSH_TRUSTED_HOSTS is a comma or space separated list of authorities (host, or host:port).
+#   DSH_TRUSTED_HOSTS=cerebro.example.com
+#
+# The two loopback entries are always present: they are how the container is reached without a proxy.
+set -- --host 127.0.0.1 --port "$DSH_PORT" --no-open \
+  --trusted-host "127.0.0.1:${DSH_PROXY_PORT}" \
+  --trusted-host "localhost:${DSH_PROXY_PORT}"
+
+for authority in $(printf '%s' "${DSH_TRUSTED_HOSTS:-}" | tr ',' ' '); do
+  [ -n "$authority" ] || continue
+  set -- "$@" --trusted-host "$authority"
+  echo "[dsh] trusting Host: $authority"
+done
+
+exec node /app/apps/cli/lib/bin.js web "$@"
