@@ -81,13 +81,18 @@ describe('approveEscalation', () => {
     expect(seen[0]?.reason).toBe('escalate sandbox to workspace-write: the user asked to write in the workspace')
   })
 
-  it('a non-widening request fails closed with its own text and never asks', async () => {
+  it('a request for authority the call already holds is a no-op and never asks', async () => {
     const seen: unknown[] = []
     const spy = ingredients({ approver: approver('allowed-once', r => seen.push(r)) })
-    await expect(approveEscalation(req({ requestedMode: 'read-only' }), spy))
-      .rejects.toThrow(/not strictly wider than this call's current "read-only" mode/)
+    // Same mode: the model asked for what it already has (the loop this fixes —
+    // the schema advertises the targets even at the ceiling).
+    await expect(approveEscalation(req({ requestedMode: 'read-only' }), spy)).resolves.toBe('read-only')
+    await expect(approveEscalation(req({ requestedMode: 'danger-full-access', effectiveMode: 'danger-full-access' as never }), spy))
+      .resolves.toBe('danger-full-access')
+    // Narrower than effective: already covered, so keep the effective mode.
     await expect(approveEscalation(req({ requestedMode: 'workspace-write', effectiveMode: 'danger-full-access' as never }), spy))
-      .rejects.toThrow(/not strictly wider/)
+      .resolves.toBe('danger-full-access')
+    // No privilege was granted, so no human was ever asked.
     expect(seen).toEqual([])
   })
 
