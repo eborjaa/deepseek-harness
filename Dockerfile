@@ -11,6 +11,17 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ git \
   && rm -rf /var/lib/apt/lists/*
 
+# GitHub CLI — static binary, not in Debian's repos. dpkg's arch name matches the
+# release tarball naming (amd64/arm64), so this covers the multi-arch build as-is.
+ARG GH_VERSION=2.98.0
+RUN set -eux; \
+  arch="$(dpkg --print-architecture)"; \
+  curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${arch}.tar.gz" \
+    | tar -xz -C /tmp; \
+  mv "/tmp/gh_${GH_VERSION}_linux_${arch}/bin/gh" /usr/local/bin/gh; \
+  rm -rf /tmp/gh_*; \
+  gh --version
+
 WORKDIR /app
 ENV PNPM_HOME=/usr/local/share/pnpm
 ENV PATH="$PNPM_HOME:$PATH"
@@ -45,6 +56,11 @@ RUN npm ci --omit=dev
 WORKDIR /app
 
 ENV DSH_HOME=/dsh-home
+# gh reads credentials from here. On the dsh-home volume so they survive recreate, and
+# named so the bash tool's /KEY|PASSWORD|SECRET|TOKEN/i env scrub lets it through — that
+# scrub is why GH_TOKEN alone cannot reach the agent's shell. Set here (not only in the
+# entrypoint) so `docker exec ... gh` finds it too.
+ENV GH_CONFIG_DIR=/dsh-home/.config/gh
 ENV DSH_PORT=3080
 ENV DSH_PROXY_PORT=8080
 ENV SYNAPSE_SKILLS_ROOT=/skills

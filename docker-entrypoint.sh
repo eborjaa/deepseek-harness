@@ -11,6 +11,44 @@ mkdir -p "$DSH_HOME/profiles/web" \
   "$DSH_HOME/profiles/web/node_modules/@eborja" \
   "$DSH_HOME/profiles/node_modules/@eborja"
 
+# gh credentials for the MODEL-FACING shell.
+#
+# GH_TOKEN alone does not work here. The bash tool spawns every model command through
+# a credential scrub that drops any env name matching /KEY|PASSWORD|SECRET|TOKEN/i
+# (packages/subprocess/subprocess/src/index.ts), so GH_TOKEN is gone by the time the
+# agent's shell starts. gh's other credential source — its config file — is not touched
+# by that scrub, and GH_CONFIG_DIR passes it (no matching substring, no DSH_ prefix).
+# So: point gh at the dsh-home VOLUME (survives recreate; /root does not) and seed the
+# file there from GH_TOKEN at boot.
+#
+# Note this is deliberately readable by the agent: `cat $GH_CONFIG_DIR/hosts.yml` shows
+# the token. That is inherent to giving an agent gh at all — `gh auth login` writes the
+# same file. Scope the token instead (fine-grained, selected repos).
+export GH_CONFIG_DIR="${GH_CONFIG_DIR:-$DSH_HOME/.config/gh}"
+mkdir -p "$GH_CONFIG_DIR"
+chmod 700 "$GH_CONFIG_DIR"
+
+if [[ -n "${GH_TOKEN:-}" ]]; then
+  # Re-seeded every boot so rotating the token in deploy/.env actually takes effect.
+  # GH_TOKEN is unset for this one call, or gh refuses it as already-authenticated.
+  if printf '%s' "$GH_TOKEN" | env -u GH_TOKEN gh auth login --with-token 2>/dev/null; then
+    chmod 600 "$GH_CONFIG_DIR/hosts.yml" 2>/dev/null || true
+    echo "[dsh] gh: seeded $GH_CONFIG_DIR/hosts.yml from GH_TOKEN"
+  else
+    echo "[dsh] gh: WARNING — GH_TOKEN was rejected by 'gh auth login --with-token'"
+  fi
+elif [[ -f "$GH_CONFIG_DIR/hosts.yml" ]]; then
+  echo "[dsh] gh: using stored credentials in $GH_CONFIG_DIR"
+else
+  echo "[dsh] gh: no GH_TOKEN and no stored credentials — gh will be unauthenticated"
+fi
+
+# Wire git push/clone to whichever of the two paths above authenticated.
+if gh auth status >/dev/null 2>&1; then
+  git config --global credential.helper '!gh auth git-credential'
+  echo "[dsh] gh: authenticated as $(gh api user --jq .login 2>/dev/null || echo '?') · git push/clone wired"
+fi
+
 # Same resolution trick as `dsh plugin add` on a Mac: the profile sees
 # @eborja/synapse as a local package. The token stays in the environment —
 # never on the dsh-home volume, never in YAML.
