@@ -156,6 +156,17 @@ export interface EscalationRequest {
  */
 export async function approveEscalation<A, C>(request: EscalationRequest, approval: EscalationApproval<A, C>): Promise<SandboxMode> {
   const { requestedMode: mode, effectiveMode, justification, subject } = request
+  // A request for authority the call ALREADY holds is a NO-OP, not an error.
+  // The tool schema advertises the full target vocabulary whenever any
+  // sandboxing executor is mounted (tool-bash `escalationModes`), so a session
+  // already at the ceiling is still shown `sandbox_permissions` — and models
+  // routinely fill it in out of caution. Throwing there taught the model
+  // nothing it could act on, and it retried the same impossible ask until the
+  // turn burned out. Granting the mode it already has ends that loop while
+  // widening nothing: no prompt, no privilege gained.
+  if (mode === effectiveMode || (WIDER_MODES[mode] ?? []).includes(effectiveMode)) {
+    return effectiveMode
+  }
   // Strict widening is an EXECUTION check against the call's effective mode —
   // deliberately not a schema constraint (the enum is the closed target
   // vocabulary; the effective mode is per-call truth).
