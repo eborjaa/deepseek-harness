@@ -164,4 +164,7 @@ for authority in $(printf '%s' "${DSH_TRUSTED_HOSTS:-}" | tr ',' ' '); do
   echo "[dsh] trusting Host: $authority"
 done
 
-exec node /app/apps/cli/lib/bin.js web "$@"
+# The image ships upstream's `dsh-python-runtime-closure` deploy root, whose
+# launcher lives here (their ENTRY_BIN in scripts/build-exe-for-python-sdk.ts),
+# not at the apps/cli path the workspace uses.
+exec node /app/node_modules/@deepseek-ai/dsh/lib/bin.js web "$@"

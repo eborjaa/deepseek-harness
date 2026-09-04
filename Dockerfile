@@ -43,34 +43,39 @@ FROM deps AS build
 RUN pnpm run build \
   && chmod +x /app/docker-entrypoint.sh
 RUN rm -rf .git
-# NO --prod PRUNING HERE, DELIBERATELY. It looks like the obvious next win —
-# devDependencies are ~1.8GB of this install — and all four ways of doing it
-# break this workspace at runtime:
+# Deploy the RUNTIME CLOSURE, not apps/cli.
+#
+# Deploying apps/cli directly does not work, and neither does any other
+# obvious way of dropping devDependencies:
 #
 #   pnpm prune --prod      → dropped @deepseek-ai/dsh-app-boot
 #   pnpm install --prod    → dropped @deepseek-ai/cordis
-#   pnpm deploy --legacy   → dropped @deepseek-ai/cordis-plugin-group
+#   pnpm deploy (apps/cli) → dropped @deepseek-ai/cordis-plugin-group
 #   injectWorkspacePackages: true (what non-legacy deploy requires)
 #                          → rewrites every workspace link: to file:, which
 #                            breaks the TS build outright: cross-package
 #                            typecheck resolves sibling `src/*.ts` THROUGH
 #                            those symlinks (dozens of TS2307).
 #
-# One root cause, three faces. `pnpm peers check` reports this workspace has
-# pervasive UNMET peerDependencies (@deepseek-ai/cordis, dsh-invariants,
-# dsh-llm, dsh-session, ...) that no package.json — not even the root's —
-# actually declares. What satisfies them at runtime is pnpm's hoisted fallback
-# dir (node_modules/.pnpm/node_modules, `hoist: true`): Node walks up and finds
-# packages nothing formally depends on. Any --prod pass removes dev-reachable
-# packages from that fallback, so resolution breaks at whichever import is
-# reached first — a different one each time, which is why this looks like
-# three separate bugs and is not.
+# One root cause, several faces: `pnpm peers check` shows this workspace has
+# pervasive UNMET peerDependencies that no package.json declares. What
+# satisfies them in a normal install is pnpm's hoisted fallback dir
+# (node_modules/.pnpm/node_modules, `hoist: true`) — Node walks up and finds
+# packages nothing formally depends on. Any --prod pass empties that fallback,
+# so resolution breaks at whichever import is reached first.
 #
-# Fixing it properly means declaring those peers in the harness's own
-# packages — a dependency-hygiene change in this repo, not a Docker concern.
-# Until then the image ships the same fully-installed tree that today's
-# working 4.37GB image ships; the win here comes from the slim runtime base
-# and from not carrying the build stage's throwaway layers.
+# python/sdk-runtime IS the fix, and it is upstream's, not ours:
+# `dsh-python-runtime-closure` is a dependency-only deploy root naming every
+# workspace package the dsh runtime actually needs, and
+# scripts/build-exe-for-python-sdk.ts already stages exactly this tree for the
+# Python wheel. A bare `pnpm deploy` of it is NOT enough — it still needs the
+# hoisted node-linker plus two fixups — so docker-stage-runtime.mjs ports that
+# script's staging half rather than reinventing it. See its header.
+#
+# Its layout is upstream's too: the launcher is at
+# node_modules/@deepseek-ai/dsh/lib/bin.js (their ENTRY_BIN), which is why
+# docker-entrypoint.sh execs that path rather than apps/cli/lib/bin.js.
+RUN node docker-stage-runtime.mjs /opt/dsh-runtime
 
 FROM node:22-bookworm-slim AS runtime
 RUN apt-get update \
@@ -89,8 +94,13 @@ RUN set -eux; \
   gh --version
 
 WORKDIR /app
-COPY --from=build /app .
-RUN mkdir -p /dsh-home /synapse/vaults /skills \
+# The deployed closure is self-contained: its node_modules holds every
+# workspace package the runtime needs, as real files rather than symlinks into
+# a workspace that no longer exists here.
+COPY --from=build /opt/dsh-runtime .
+COPY --from=build /app/docker-entrypoint.sh /app/docker-loopback-proxy.mjs ./
+RUN chmod +x /app/docker-entrypoint.sh \
+  && mkdir -p /dsh-home /synapse/vaults /skills \
   && cp /app/docker-loopback-proxy.mjs /usr/local/lib/dsh-loopback-proxy.mjs \
   && cp /app/docker-entrypoint.sh /usr/local/bin/dsh-entrypoint.sh
 
